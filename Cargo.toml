@@ -1,0 +1,19 @@
+[package]
+name = "rub-vvz-cli"
+version = "0.1.0-beta.1"
+edition = "2021"
+description = "CLI for the public Ruhr-Universitaet Bochum course catalogue"
+license = "MIT"
+repository = "https://github.com/TobiasPol/rub-vvz-cli"
+homepage = "https://github.com/TobiasPol/rub-vvz-cli"
+readme = "README.md"
+keywords = ["rub", "vvz", "campusoffice", "cli"]
+categories = ["command-line-utilities"]
+
+[lib]
+name = "rub_vvz"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rub-vvz"
+path = "src/main.rs"
