@@ -32,7 +32,7 @@ impl VvzClient {
     pub fn current_term_guid(&self) -> Result<String, String> {
         let (final_url, html) = self.request("/", None)?;
         discover_term_guid(&html, &final_url)
-            .ok_or_else(|| "Konnte keine tguid fuer das aktuelle VVZ-Semester finden.".to_string())
+            .ok_or_else(|| "Could not find a tguid for the current VVZ semester.".to_string())
     }
 
     pub fn search_events(
@@ -142,14 +142,11 @@ impl VvzClient {
         let output = command
             .arg(&url)
             .output()
-            .map_err(|error| format!("Konnte curl nicht starten. Ist curl installiert? {error}"))?;
+            .map_err(|error| format!("Could not start curl. Is curl installed? {error}"))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!(
-                "HTTP-Abruf fehlgeschlagen fuer {url}: {}",
-                stderr.trim()
-            ));
+            return Err(format!("HTTP fetch failed for {url}: {}", stderr.trim()));
         }
 
         let marker = EFFECTIVE_URL_MARKER.as_bytes();
