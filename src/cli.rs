@@ -75,38 +75,60 @@ pub fn run_env() -> i32 {
 }
 
 pub fn run_with_client<C: CliClient>(client: &C, args: &[&str]) -> Result<String, String> {
-    if args.len() <= 1 || args.iter().any(|arg| *arg == "-h" || *arg == "--help") {
+    if args.len() <= 1 || args[1] == "-h" || args[1] == "--help" {
         return Ok(help());
     }
 
-    let command_index = args
-        .iter()
-        .position(|arg| matches!(*arg, "search" | "event" | "events" | "fields"))
-        .ok_or_else(|| "Befehl fehlt. Nutze --help.".to_string())?;
+    let action_index = args.iter().position(|arg| is_command(arg));
+    let help_index = args.iter().position(|arg| *arg == "help");
+
+    if let Some(help_index) = help_index.filter(|help_index| {
+        action_index
+            .map(|action_index| *help_index < action_index)
+            .unwrap_or(true)
+    }) {
+        let rest = &args[help_index + 1..];
+        if rest.iter().any(|arg| is_help_flag(arg)) {
+            return command_help("help");
+        }
+        return match rest.first().copied() {
+            Some(command) => command_help(command),
+            None => Ok(help()),
+        };
+    }
+
+    if action_index.is_none() && args.iter().skip(1).any(|arg| is_help_flag(arg)) {
+        return Ok(help());
+    }
+    let command_index =
+        action_index.ok_or_else(|| "Missing command. Run 'rub-vvz help'.".to_string())?;
     let command = args[command_index];
     let rest = &args[command_index + 1..];
-    let options = Options::parse(rest);
+    if rest.iter().any(|arg| is_help_flag(arg)) {
+        return command_help(command);
+    }
+    let options = Options::parse(rest)?;
 
     match command {
         "search" => {
             let query = options
                 .positionals
                 .first()
-                .ok_or_else(|| "search braucht einen Suchbegriff.".to_string())?;
+                .ok_or_else(|| "search requires a query.".to_string())?;
             let mut results =
                 client.search_events(query, options.term_guid.as_deref(), &options.lang)?;
             results.truncate(options.limit.unwrap_or(20));
             Ok(if options.json {
                 search_results_json(&results)
             } else {
-                search_results_text(&results)
+                search_results_text(&results, ResultListKind::Search)
             })
         }
         "event" => {
             let event = options
                 .positionals
                 .first()
-                .ok_or_else(|| "event braucht eine gguid oder URL.".to_string())?;
+                .ok_or_else(|| "event requires a gguid or URL.".to_string())?;
             let detail = client.event(event, options.term_guid.as_deref(), &options.lang)?;
             Ok(if options.json {
                 event_detail_json(&detail)
@@ -118,13 +140,13 @@ pub fn run_with_client<C: CliClient>(client: &C, args: &[&str]) -> Result<String
             let field = options
                 .positionals
                 .first()
-                .ok_or_else(|| "events braucht eine Bereichs-gguid oder URL.".to_string())?;
+                .ok_or_else(|| "events requires a field gguid or URL.".to_string())?;
             let mut results = client.events(field, options.term_guid.as_deref(), &options.lang)?;
             results.truncate(options.limit.unwrap_or(100));
             Ok(if options.json {
                 search_results_json(&results)
             } else {
-                search_results_text(&results)
+                search_results_text(&results, ResultListKind::Events)
             })
         }
         "fields" => {
@@ -135,8 +157,16 @@ pub fn run_with_client<C: CliClient>(client: &C, args: &[&str]) -> Result<String
                 fields_text(&fields)
             })
         }
-        _ => Err(format!("Unbekannter Befehl: {command}")),
+        _ => Err(format!("Unknown command: {command}")),
     }
+}
+
+fn is_command(value: &str) -> bool {
+    matches!(value, "search" | "event" | "events" | "fields")
+}
+
+fn is_help_flag(value: &str) -> bool {
+    matches!(value, "-h" | "--help")
 }
 
 #[derive(Debug)]
@@ -149,7 +179,7 @@ struct Options {
 }
 
 impl Options {
-    fn parse(args: &[&str]) -> Self {
+    fn parse(args: &[&str]) -> Result<Self, String> {
         let mut options = Self {
             json: false,
             lang: "de".to_string(),
@@ -161,60 +191,201 @@ impl Options {
         while index < args.len() {
             match args[index] {
                 "--json" => options.json = true,
+                value if value.starts_with("--lang=") => {
+                    options.lang = value["--lang=".len()..].to_string();
+                }
                 "--lang" => {
-                    if let Some(value) = args.get(index + 1) {
-                        options.lang = (*value).to_string();
-                        index += 1;
-                    }
+                    let value = args
+                        .get(index + 1)
+                        .ok_or_else(|| "--lang requires a value.".to_string())?;
+                    options.lang = (*value).to_string();
+                    index += 1;
+                }
+                value if value.starts_with("--term-guid=") => {
+                    options.term_guid = Some(value["--term-guid=".len()..].to_string());
                 }
                 "--term-guid" => {
-                    if let Some(value) = args.get(index + 1) {
-                        options.term_guid = Some((*value).to_string());
-                        index += 1;
-                    }
+                    let value = args
+                        .get(index + 1)
+                        .ok_or_else(|| "--term-guid requires a value.".to_string())?;
+                    options.term_guid = Some((*value).to_string());
+                    index += 1;
+                }
+                value if value.starts_with("--limit=") => {
+                    options.limit = Some(parse_limit(&value["--limit=".len()..])?);
                 }
                 "--limit" => {
-                    if let Some(value) = args.get(index + 1) {
-                        options.limit = value.parse().ok();
-                        index += 1;
-                    }
+                    let value = args
+                        .get(index + 1)
+                        .ok_or_else(|| "--limit requires a value.".to_string())?;
+                    options.limit = Some(parse_limit(value)?);
+                    index += 1;
                 }
-                value if value.starts_with('-') => {}
+                value if value.starts_with('-') => {
+                    return Err(format!("Unknown option: {value}. Run 'rub-vvz help'."));
+                }
                 value => options.positionals.push(value.to_string()),
             }
             index += 1;
         }
-        options
+        Ok(options)
     }
 }
 
 fn parse_global_timeout(args: &[String]) -> Option<u64> {
-    args.windows(2)
-        .find(|window| window[0] == "--timeout")
-        .and_then(|window| window[1].parse().ok())
+    args.iter()
+        .find_map(|arg| arg.strip_prefix("--timeout="))
+        .and_then(|value| value.parse().ok())
+        .or_else(|| {
+            args.windows(2)
+                .find(|window| window[0] == "--timeout")
+                .and_then(|window| window[1].parse().ok())
+        })
+}
+
+fn parse_limit(value: &str) -> Result<usize, String> {
+    match value.parse::<usize>() {
+        Ok(limit) if limit > 0 => Ok(limit),
+        _ => Err(format!("--limit requires a positive number, got: {value}")),
+    }
 }
 
 fn help() -> String {
-    "usage: rub-vvz [--timeout SECONDS] {search,event,events,fields} ...\n\n\
-CLI fuer das oeffentliche Vorlesungsverzeichnis der RUB.\n\n\
-commands:\n\
-  search <query>        Veranstaltungen suchen\n\
-  event <gguid|url>     Veranstaltungsdetails anzeigen\n\
-  events <gguid|url>    Veranstaltungen eines VVZ-Bereichs listen\n\
-  fields                VVZ-Bereiche/Fakultaeten listen\n\n\
-options:\n\
-  --json                JSON statt Text ausgeben\n\
-  --term-guid <tguid>   Semester explizit setzen\n\
-  --lang <lang>         VVZ-Sprache, Standard: de\n\
-  --limit <n>           Ergebnislimit\n"
-        .to_string()
+    concat!(
+        "Usage: rub-vvz [--timeout SECONDS] COMMAND [ARGS]...\n\n",
+        "CLI for Ruhr-Universitaet Bochum's public course catalogue.\n\n",
+        "Commands:\n",
+        "  search      Search public courses\n",
+        "  event       Show course details\n",
+        "  events      List courses in a VVZ area\n",
+        "  fields      List VVZ areas and faculties\n",
+        "  help        Show help, optionally for a command\n\n",
+        "Global Options:\n",
+        "  --timeout SECONDS   HTTP timeout, default: 20\n",
+        "  -h, --help          Show help\n\n",
+        "Output:\n",
+        "  Text output explains gguid, tguid, and the next useful command.\n",
+        "  Use --json for stable machine-readable output without explanations.\n\n",
+        "Examples:\n",
+        "  rub-vvz search \"Software Engineering\" --limit 5\n",
+        "  rub-vvz event 0xEVENT --term-guid 0xTERM\n",
+        "  rub-vvz help search\n"
+    )
+    .to_string()
 }
 
-fn search_results_text(results: &[SearchResult]) -> String {
+fn command_help(command: &str) -> Result<String, String> {
+    match command {
+        "search" => Ok(concat!(
+            "Usage: rub-vvz search <query> [OPTIONS]\n\n",
+            "Searches public VVZ courses by title, lecturer, or course number.\n\n",
+            "Options:\n",
+            "  --json                Print a JSON array instead of explained text\n",
+            "  --limit N             Result limit, default: 20\n",
+            "  --term-guid TGUID     Set the semester explicitly\n",
+            "  --lang LANG           VVZ language, default: de\n",
+            "  -h, --help            Show help for search\n\n",
+            "Output:\n",
+            "  Text: numbered results with title, gguid, tguid, summary, and URL.\n",
+            "  JSON: array with title, url, event_guid, term_guid, and summary.\n",
+            "  Next step: rub-vvz event <gguid> --term-guid <tguid>\n\n",
+            "Examples:\n",
+            "  rub-vvz search \"Software Engineering\" --limit 5\n",
+            "  rub-vvz search \"Software Engineering\" --json\n"
+        )
+            .to_string()),
+        "event" => Ok(concat!(
+            "Usage: rub-vvz event <gguid|url> [OPTIONS]\n\n",
+            "Shows details for a public VVZ course. The argument can be a raw gguid\n",
+            "or a complete event.asp URL.\n\n",
+            "Options:\n",
+            "  --json                Print a JSON object instead of explained text\n",
+            "  --term-guid TGUID     Set the semester, important for raw gguid values\n",
+            "  --lang LANG           VVZ language, default: de\n",
+            "  -h, --help            Show help for event\n\n",
+            "Output:\n",
+            "  Text: title, identifiers, CampusOffice fields, table sections, and description.\n",
+            "  JSON: object with title, url, event_guid, term_guid, fields, sections, and description.\n\n",
+            "Examples:\n",
+            "  rub-vvz event 0xEVENT --term-guid 0xTERM\n",
+            "  rub-vvz event \"https://vvz.ruhr-uni-bochum.de/campus/all/event.asp?...\" --json\n"
+        )
+            .to_string()),
+        "events" => Ok(concat!(
+            "Usage: rub-vvz events <field-gguid|url> [OPTIONS]\n\n",
+            "Lists public courses in a VVZ area or faculty.\n\n",
+            "Options:\n",
+            "  --json                Print a JSON array instead of explained text\n",
+            "  --limit N             Result limit, default: 100\n",
+            "  --term-guid TGUID     Set the semester explicitly\n",
+            "  --lang LANG           VVZ language, default: de\n",
+            "  -h, --help            Show help for events\n\n",
+            "Output:\n",
+            "  Text: numbered courses with title, gguid, tguid, summary, and URL.\n",
+            "  JSON: array with title, url, event_guid, term_guid, and summary.\n",
+            "  Next step: rub-vvz event <gguid> --term-guid <tguid>\n\n",
+            "Examples:\n",
+            "  rub-vvz events 0xFIELD --term-guid 0xTERM --limit 10\n",
+            "  rub-vvz events \"https://vvz.ruhr-uni-bochum.de/campus/all/eventlist.asp?...\" --json\n"
+        )
+            .to_string()),
+        "fields" => Ok(concat!(
+            "Usage: rub-vvz fields [OPTIONS]\n\n",
+            "Lists top-level VVZ areas and faculties for the selected semester.\n\n",
+            "Options:\n",
+            "  --json                Print a JSON array instead of explained text\n",
+            "  --term-guid TGUID     Set the semester explicitly\n",
+            "  --lang LANG           VVZ language, default: de\n",
+            "  -h, --help            Show help for fields\n\n",
+            "Output:\n",
+            "  Text: area names with field, gguid, tguid, and URL.\n",
+            "  JSON: array with name, url, value, guid, and term_guid.\n",
+            "  Next step: rub-vvz events <gguid> --term-guid <tguid>\n\n",
+            "Examples:\n",
+            "  rub-vvz fields\n",
+            "  rub-vvz fields --json\n"
+        )
+            .to_string()),
+        "help" => Ok(concat!(
+            "Usage: rub-vvz help [COMMAND]\n\n",
+            "Shows root help or help for search, event, events, or fields.\n\n",
+            "Examples:\n",
+            "  rub-vvz help\n",
+            "  rub-vvz help search\n"
+        )
+            .to_string()),
+        value => Err(format!(
+            "Unknown help topic: {value}. Run 'rub-vvz help'."
+        )),
+    }
+}
+
+enum ResultListKind {
+    Search,
+    Events,
+}
+
+fn search_results_text(results: &[SearchResult], kind: ResultListKind) -> String {
+    let (label, empty_hint) = match kind {
+        ResultListKind::Search => (
+            "rub-vvz search",
+            "The query returned no public VVZ courses for the selected semester. Check the spelling or set --term-guid for another semester.",
+        ),
+        ResultListKind::Events => (
+            "rub-vvz events",
+            "The VVZ area returned no public courses for the selected semester. Check the area gguid or set --term-guid.",
+        ),
+    };
     if results.is_empty() {
-        return "Keine Veranstaltungen gefunden.\n".to_string();
+        return format!("{label}: 0 courses found.\n\nInterpretation: {empty_hint}\n");
     }
     let mut output = String::new();
+    output.push_str(&format!("{label}: {} courses found.\n\n", results.len()));
+    output.push_str(
+        "Interpretation: gguid is the course identifier and tguid is the semester. \
+Run 'rub-vvz event <gguid> --term-guid <tguid>' for details or use '--json' \
+for machine-readable output.\n\n",
+    );
     for (index, result) in results.iter().enumerate() {
         output.push_str(&format!("{}. {}\n", index + 1, result.title));
         if let Some(guid) = &result.event_guid {
@@ -233,6 +404,12 @@ fn search_results_text(results: &[SearchResult]) -> String {
 
 fn event_detail_text(detail: &EventDetail) -> String {
     let mut output = String::new();
+    output.push_str("rub-vvz event: course details\n\n");
+    output.push_str(
+        "Interpretation: gguid is the course identifier and tguid is the semester. \
+Fields are CampusOffice metadata; sections contain tables such as appointments, \
+lecturers, modules, or audiences. Use '--json' for machine-readable output.\n\n",
+    );
     output.push_str(&format!("{}\n", detail.title));
     if let Some(guid) = &detail.event_guid {
         output.push_str(&format!("gguid: {guid}\n"));
@@ -255,14 +432,26 @@ fn event_detail_text(detail: &EventDetail) -> String {
             output.push_str(&format!("- {cells}\n"));
         }
     }
+    if !detail.description.trim().is_empty() {
+        output.push_str(&format!("\nDescription\n{}\n", detail.description.trim()));
+    }
     output
 }
 
 fn fields_text(fields: &[Field]) -> String {
     if fields.is_empty() {
-        return "Keine VVZ-Bereiche gefunden.\n".to_string();
+        return "rub-vvz fields: 0 VVZ areas found.\n\nInterpretation: No public VVZ areas were detected for the selected semester. Check --term-guid or RUB VVZ availability.\n".to_string();
     }
     let mut output = String::new();
+    output.push_str(&format!(
+        "rub-vvz fields: {} VVZ areas found.\n\n",
+        fields.len()
+    ));
+    output.push_str(
+        "Interpretation: gguid is the area identifier and tguid is the semester. \
+Run 'rub-vvz events <gguid> --term-guid <tguid>' for courses in an area or \
+use '--json' for machine-readable output.\n\n",
+    );
     for (index, field) in fields.iter().enumerate() {
         output.push_str(&format!("{}. {}\n", index + 1, field.name));
         if let Some(value) = &field.value {

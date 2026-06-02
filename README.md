@@ -24,6 +24,7 @@ expected during beta.
 - List top-level VVZ areas and faculties
 - List all events in a VVZ area
 - Print either readable text or machine-readable JSON
+- Text output explains identifiers and useful next commands for agents
 - Detect the current semester `tguid` from the public VVZ
 - No external Rust crate dependencies
 - Uses `curl` for HTTP transport, which keeps builds simple and dependency-free
@@ -81,9 +82,11 @@ cargo install --path .
 Search for public courses:
 
 ```bash
-rub-vvz search Kryptographie
+rub-vvz help
+rub-vvz help search
+rub-vvz search Cryptography
 rub-vvz search "Software Engineering" --limit 5
-rub-vvz search Kryptographie --json
+rub-vvz search Cryptography --json
 ```
 
 Show a course detail page:
@@ -110,10 +113,21 @@ rub-vvz events 0x9666E9D9803C46EB9ABF547944989092 --json
 Use a specific semester:
 
 ```bash
-rub-vvz search Kryptographie --term-guid 0x32F038F554334DC3AB9024E476ECAE2E
+rub-vvz search Cryptography --term-guid 0x32F038F554334DC3AB9024E476ECAE2E
 ```
 
 ## Commands
+
+### `help [command]`
+
+Shows root help or command-specific help. The explicit command form is intended
+for agents and scripts that should not infer usage from failures.
+
+```bash
+rub-vvz help
+rub-vvz help search
+rub-vvz event --help
+```
 
 ### `search <query>`
 
@@ -122,9 +136,9 @@ Searches public VVZ events.
 Options:
 
 - `--json` prints JSON
-- `--limit <n>` limits result count, default `20`
-- `--term-guid <tguid>` uses a specific semester
-- `--lang <lang>` sets the VVZ language, default `de`
+- `--limit <n>` or `--limit=<n>` limits result count, default `20`
+- `--term-guid <tguid>` or `--term-guid=<tguid>` uses a specific semester
+- `--lang <lang>` or `--lang=<lang>` sets the VVZ language, default `de`
 
 ### `event <gguid-or-url>`
 
@@ -134,9 +148,9 @@ complete `event.asp` URL.
 Options:
 
 - `--json` prints JSON
-- `--term-guid <tguid>` is needed when a raw `gguid` should be resolved for a
-  specific semester
-- `--lang <lang>` sets the VVZ language, default `de`
+- `--term-guid <tguid>` or `--term-guid=<tguid>` is needed when a raw `gguid`
+  should be resolved for a specific semester
+- `--lang <lang>` or `--lang=<lang>` sets the VVZ language, default `de`
 
 ### `fields`
 
@@ -145,8 +159,8 @@ Lists top-level public VVZ areas and faculties.
 Options:
 
 - `--json` prints JSON
-- `--term-guid <tguid>` uses a specific semester
-- `--lang <lang>` sets the VVZ language, default `de`
+- `--term-guid <tguid>` or `--term-guid=<tguid>` uses a specific semester
+- `--lang <lang>` or `--lang=<lang>` sets the VVZ language, default `de`
 
 ### `events <field-gguid-or-url>`
 
@@ -156,16 +170,16 @@ Lists public events for a VVZ area or faculty. The argument can be a raw
 Options:
 
 - `--json` prints JSON
-- `--limit <n>` limits result count, default `100`
-- `--term-guid <tguid>` uses a specific semester
-- `--lang <lang>` sets the VVZ language, default `de`
+- `--limit <n>` or `--limit=<n>` limits result count, default `100`
+- `--term-guid <tguid>` or `--term-guid=<tguid>` uses a specific semester
+- `--lang <lang>` or `--lang=<lang>` sets the VVZ language, default `de`
 
 ## Examples
 
 Find cryptography courses:
 
 ```bash
-rub-vvz search Kryptographie --limit 3
+rub-vvz search Cryptography --limit 3
 ```
 
 Fetch details as JSON:
@@ -188,16 +202,21 @@ rub-vvz events 0x9666E9D9803C46EB9ABF547944989092 --limit 20
 
 ## JSON Output
 
+Text output is optimized for humans and agents reading terminal logs. It
+includes an `Interpretation:` paragraph that explains `gguid`, `tguid`, and a
+useful follow-up command. Use `--json` whenever another program should parse the
+result. JSON output intentionally does not include explanatory prose.
+
 `search` and `events` return arrays of course references:
 
 ```json
 [
   {
-    "title": "Einführung in die Kryptographie 2",
+    "title": "Introduction to Cryptography 2",
     "url": "https://vvz.ruhr-uni-bochum.de/campus/all/event.asp?...",
     "event_guid": "0xACEEDD74DF204A70B6ED84BACDA481CC",
     "term_guid": "0x32F038F554334DC3AB9024E476ECAE2E",
-    "summary": "211009 | Paar, Christof | Vorlesung mit Übung"
+    "summary": "211009 | Paar, Christof | Lecture with exercise"
   }
 ]
 ```
@@ -242,7 +261,7 @@ v0.1.0-beta.1
 cargo fmt
 cargo clippy --all-targets -- -D warnings
 cargo test
-cargo run -- search Kryptographie --limit 1
+cargo run -- search Cryptography --limit 1
 ```
 
 The CLI intentionally has no external Rust crate dependencies. If richer HTML

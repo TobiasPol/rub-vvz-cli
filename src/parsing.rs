@@ -114,7 +114,7 @@ pub fn parse_event_detail(html: &str, url: &str) -> EventDetail {
         .cloned()
         .or_else(|| first_heading(html))
         .or_else(|| first_title(html))
-        .unwrap_or_else(|| "Veranstaltung".to_string());
+        .unwrap_or_else(|| "Course".to_string());
 
     EventDetail {
         title,
