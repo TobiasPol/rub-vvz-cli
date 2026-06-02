@@ -13,7 +13,7 @@ scope.
 
 This project is currently in beta.
 
-The first beta release is `v0.1.0-beta.1`. The CLI is usable for public VVZ
+The latest beta release is `v0.1.0-beta.2`. The CLI is usable for public VVZ
 lookups, but RUB can change CampusOffice HTML without notice. Parser fixes are
 expected during beta.
 
@@ -59,7 +59,7 @@ brew upgrade rub-vvz
 ### Cargo
 
 ```bash
-cargo install --git https://github.com/TobiasPol/rub-vvz-cli --tag v0.1.0-beta.1
+cargo install --git https://github.com/TobiasPol/rub-vvz-cli --tag v0.1.0-beta.2
 ```
 
 ### From Source
@@ -252,7 +252,7 @@ vMAJOR.MINOR.PATCH[-PRERELEASE.N]
 Example:
 
 ```text
-v0.1.0-beta.1
+v0.1.0-beta.2
 ```
 
 ## Development

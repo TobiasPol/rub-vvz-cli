@@ -1,6 +1,6 @@
 [package]
 name = "rub-vvz-cli"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 edition = "2021"
 description = "CLI for the public Ruhr-Universitaet Bochum course catalogue"
 license = "MIT"
