@@ -41,6 +41,13 @@ brew tap TobiasPol/rub-vvz-cli https://github.com/TobiasPol/rub-vvz-cli
 brew install rub-vvz
 ```
 
+If your Homebrew installation enforces tap trust, trust only this formula before
+installing:
+
+```bash
+brew trust --formula TobiasPol/rub-vvz-cli/rub-vvz
+```
+
 Upgrade later with:
 
 ```bash
